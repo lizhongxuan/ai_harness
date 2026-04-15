@@ -1,0 +1,17 @@
+import{_ as s,o as n,c as e,a2 as o}from"./chunks/framework.D6tuaLBS.js";const h=JSON.parse('{"title":"23. Chat Completions 适配","description":"","frontmatter":{},"headers":[],"relativePath":"codex_docs/api/chat-completions.md","filePath":"codex_docs/api/chat-completions.md"}'),t={name:"codex_docs/api/chat-completions.md"};function p(l,a,c,i,r,u){return n(),e("div",null,[...a[0]||(a[0]=[o(`<h1 id="_23-chat-completions-适配" tabindex="-1">23. Chat Completions 适配 <a class="header-anchor" href="#_23-chat-completions-适配" aria-label="Permalink to &quot;23. Chat Completions 适配&quot;">​</a></h1><blockquote><p>源码位置: <code>codex-rs/core/src/connectors.rs</code>, <code>codex-rs/core/src/client_common.rs</code></p></blockquote><h2 id="概述" tabindex="-1">概述 <a class="header-anchor" href="#概述" aria-label="Permalink to &quot;概述&quot;">​</a></h2><p>对于非 OpenAI 的 Provider（如 Anthropic、本地模型），Codex 通过适配层将 Responses API 格式转换为 Chat Completions 格式。</p><h2 id="底层原理" tabindex="-1">底层原理 <a class="header-anchor" href="#底层原理" aria-label="Permalink to &quot;底层原理&quot;">​</a></h2><h3 id="适配层" tabindex="-1">适配层 <a class="header-anchor" href="#适配层" aria-label="Permalink to &quot;适配层&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>Codex 内部统一使用 Responses API 格式</span></span>
+<span class="line"><span>  │</span></span>
+<span class="line"><span>  ▼</span></span>
+<span class="line"><span>connectors.rs — Provider 连接器</span></span>
+<span class="line"><span>  │</span></span>
+<span class="line"><span>  ├── OpenAI → 直接使用 Responses API</span></span>
+<span class="line"><span>  ├── Anthropic → 转换为 Messages API</span></span>
+<span class="line"><span>  ├── 本地模型 → 转换为 Chat Completions</span></span>
+<span class="line"><span>  └── 其他 → 转换为 Chat Completions</span></span></code></pre></div><h3 id="消息格式转换" tabindex="-1">消息格式转换 <a class="header-anchor" href="#消息格式转换" aria-label="Permalink to &quot;消息格式转换&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>Responses API 格式：</span></span>
+<span class="line"><span>  { type: &quot;message&quot;, role: &quot;user&quot;, content: [...] }</span></span>
+<span class="line"><span>  { type: &quot;function_call&quot;, name: &quot;shell&quot;, arguments: &quot;...&quot; }</span></span>
+<span class="line"><span>  { type: &quot;function_call_output&quot;, call_id: &quot;...&quot;, output: &quot;...&quot; }</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Chat Completions 格式：</span></span>
+<span class="line"><span>  { role: &quot;user&quot;, content: &quot;...&quot; }</span></span>
+<span class="line"><span>  { role: &quot;assistant&quot;, tool_calls: [...] }</span></span>
+<span class="line"><span>  { role: &quot;tool&quot;, tool_call_id: &quot;...&quot;, content: &quot;...&quot; }</span></span></code></pre></div><h2 id="关联知识点" tabindex="-1">关联知识点 <a class="header-anchor" href="#关联知识点" aria-label="Permalink to &quot;关联知识点&quot;">​</a></h2><ul><li><a href="/ai_harness/codex_docs/api/responses-api.html">Responses API</a> — 主要 API 格式</li></ul>`,11)])])}const q=s(t,[["render",p]]);export{h as __pageData,q as default};

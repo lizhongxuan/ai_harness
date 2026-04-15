@@ -1,0 +1,370 @@
+import{_ as a,o as n,c as e,a2 as p}from"./chunks/framework.D6tuaLBS.js";const u=JSON.parse('{"title":"Claude Code 源码深度剖析","description":"","frontmatter":{"title":"Claude Code 源码深度剖析"},"headers":[],"relativePath":"deep-dive/claude-code.md","filePath":"deep-dive/claude-code.md"}'),l={name:"deep-dive/claude-code.md"};function t(i,s,o,c,r,d){return n(),e("div",null,[...s[0]||(s[0]=[p(`<h1 id="claude-code-源码深度剖析" tabindex="-1">Claude Code 源码深度剖析 <a class="header-anchor" href="#claude-code-源码深度剖析" aria-label="Permalink to &quot;Claude Code 源码深度剖析&quot;">​</a></h1><blockquote><p>基于泄露的 512K 行 TypeScript 源码，逐模块拆解实现原理</p></blockquote><div class="tip custom-block"><p class="custom-block-title">知识点导航</p><p>本文涉及的 Claude Code 源码分析文章：</p><ul><li><a href="/ai_harness/claude_code_docs/agent/react-loop.html">ReAct 循环工程化实现</a> — Agent Loop 核心架构</li><li><a href="/ai_harness/claude_code_docs/context/five-layers.html">五层上下文管理体系</a> — 多级压缩管道</li><li><a href="/ai_harness/claude_code_docs/context/compact-intent.html">Compact 意图压缩策略</a> — Auto-Compact 实现</li><li><a href="/ai_harness/claude_code_docs/context/prompt-cache.html">Prompt Cache 机制</a> — 缓存与 Microcompact</li><li><a href="/ai_harness/claude_code_docs/data/claudemd.html">CLAUDE.md 持久化配置</a> — 用户规则记忆</li><li><a href="/ai_harness/claude_code_docs/data/session.html">会话数据管理</a> — 会话记忆系统</li><li><a href="/ai_harness/claude_code_docs/agent/error-recovery.html">多级错误恢复策略</a> — 错误恢复链路</li><li><a href="/ai_harness/claude_code_docs/context/tool-budget.html">工具调用 Token 预算</a> — Token Budget</li><li><a href="/ai_harness/claude_code_docs/api/token-estimate.html">Token 估算与计费</a> — 成本追踪</li><li><a href="/ai_harness/claude_code_docs/tools/permission.html">工具权限管理</a> — 沙箱与权限</li></ul></div><hr><h2 id="_1-状态机-agent-loop-★★★★★" tabindex="-1">1. 状态机 Agent Loop ★★★★★ <a class="header-anchor" href="#_1-状态机-agent-loop-★★★★★" aria-label="Permalink to &quot;1. 状态机 Agent Loop ★★★★★&quot;">​</a></h2><blockquote><p>📖 详细源码分析：<a href="/ai_harness/claude_code_docs/agent/react-loop.html">ReAct 循环工程化实现</a></p></blockquote><h3 id="核心文件-query-ts-→-queryloop" tabindex="-1">核心文件：<code>query.ts</code> → <code>queryLoop()</code> <a class="header-anchor" href="#核心文件-query-ts-→-queryloop" aria-label="Permalink to &quot;核心文件：\`query.ts\` → \`queryLoop()\`&quot;">​</a></h3><p>Claude Code 的 Agent Loop 不是教科书式的状态机，而是一个<strong>被严格约束的 while(true) 循环</strong>，内部通过 <code>State</code> 对象管理跨迭代的可变状态。</p><h3 id="执行流程" tabindex="-1">执行流程 <a class="header-anchor" href="#执行流程" aria-label="Permalink to &quot;执行流程&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>用户输入</span></span>
+<span class="line"><span>  │</span></span>
+<span class="line"><span>  ▼</span></span>
+<span class="line"><span>entrypoints/cli.tsx → 模式分发</span></span>
+<span class="line"><span>  │ interactive → TUI (Ink/React)</span></span>
+<span class="line"><span>  │ -p &quot;...&quot;   → headless/print</span></span>
+<span class="line"><span>  │ daemon     → 长运行监督者</span></span>
+<span class="line"><span>  ▼</span></span>
+<span class="line"><span>main.tsx → 上下文组装</span></span>
+<span class="line"><span>  │ systemPrompt + 工具 schema + 环境信息 + git 状态</span></span>
+<span class="line"><span>  │ + 会话记忆 + MCP 上下文 + 输出偏好</span></span>
+<span class="line"><span>  ▼</span></span>
+<span class="line"><span>query.ts → queryLoop() {</span></span>
+<span class="line"><span>  // 初始化</span></span>
+<span class="line"><span>  let state: State = { messages, toolUseContext, turnCount: 1, ... }</span></span>
+<span class="line"><span>  const budgetTracker = createBudgetTracker()</span></span>
+<span class="line"><span>  using pendingMemoryPrefetch = startRelevantMemoryPrefetch(messages)</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>  while (true) {</span></span>
+<span class="line"><span>    // === 每轮迭代开始 ===</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 1. 压缩管道（按顺序执行）</span></span>
+<span class="line"><span>    messagesForQuery = applyToolResultBudget(messages)     // L1</span></span>
+<span class="line"><span>    messagesForQuery = snipCompactIfNeeded(messagesForQuery) // L2</span></span>
+<span class="line"><span>    messagesForQuery = microcompact(messagesForQuery)        // L3</span></span>
+<span class="line"><span>    messagesForQuery = contextCollapse.apply(messagesForQuery) // L4</span></span>
+<span class="line"><span>    messagesForQuery = autocompact(messagesForQuery)          // L5</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 2. 调用模型（流式）</span></span>
+<span class="line"><span>    for await (const message of callModel({messages, tools, ...})) {</span></span>
+<span class="line"><span>      // 暂扣可恢复错误（PTL、max-output-tokens）</span></span>
+<span class="line"><span>      if (isWithheldError(message)) { withheld = true; continue }</span></span>
+<span class="line"><span>      yield message  // 流式输出给前端</span></span>
+<span class="line"><span>      </span></span>
+<span class="line"><span>      // 收集 tool_use blocks</span></span>
+<span class="line"><span>      if (message has tool_use) {</span></span>
+<span class="line"><span>        toolUseBlocks.push(...)</span></span>
+<span class="line"><span>        needsFollowUp = true</span></span>
+<span class="line"><span>        // 流式工具执行：工具在模型还在输出时就开始执行</span></span>
+<span class="line"><span>        streamingToolExecutor.addTool(toolBlock)</span></span>
+<span class="line"><span>      }</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 3. 错误恢复</span></span>
+<span class="line"><span>    if (withheld PTL) → collapse drain → reactive compact → surface error</span></span>
+<span class="line"><span>    if (withheld max-output-tokens) → escalate to 64K → multi-turn recovery</span></span>
+<span class="line"><span>    if (model fallback triggered) → switch model, retry</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 4. 如果没有 tool calls → 执行 stop hooks → 返回</span></span>
+<span class="line"><span>    if (!needsFollowUp) {</span></span>
+<span class="line"><span>      handleStopHooks()</span></span>
+<span class="line"><span>      checkTokenBudget()</span></span>
+<span class="line"><span>      return { reason: &#39;completed&#39; }</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 5. 执行工具（流式或批量）</span></span>
+<span class="line"><span>    for await (const result of toolExecutor.getRemainingResults()) {</span></span>
+<span class="line"><span>      yield result.message</span></span>
+<span class="line"><span>      toolResults.push(result)</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 6. 收集附件（文件变更通知、记忆预取、技能发现）</span></span>
+<span class="line"><span>    for await (const attachment of getAttachmentMessages(...)) {</span></span>
+<span class="line"><span>      yield attachment</span></span>
+<span class="line"><span>      toolResults.push(attachment)</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 7. 检查终止条件</span></span>
+<span class="line"><span>    if (aborted) return { reason: &#39;aborted&#39; }</span></span>
+<span class="line"><span>    if (turnCount &gt; maxTurns) return { reason: &#39;max_turns&#39; }</span></span>
+<span class="line"><span>    </span></span>
+<span class="line"><span>    // 8. 更新状态，继续循环</span></span>
+<span class="line"><span>    state = { messages: [...messages, ...assistantMessages, ...toolResults], turnCount: turnCount + 1, ... }</span></span>
+<span class="line"><span>  }</span></span>
+<span class="line"><span>}</span></span></code></pre></div><h3 id="关键优化细节" tabindex="-1">关键优化细节 <a class="header-anchor" href="#关键优化细节" aria-label="Permalink to &quot;关键优化细节&quot;">​</a></h3><p><strong>流式工具执行（StreamingToolExecutor）</strong>：</p><ul><li>工具不等模型输出完毕就开始执行</li><li>模型输出 tool_use block → 立即提交给 executor</li><li>executor 在后台执行，结果在模型输出结束后收集</li><li>效果：工具执行和模型输出并行，减少总延迟</li></ul><p><strong>State 对象设计</strong>：</p><div class="language-typescript vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang">typescript</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">interface</span><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;"> State</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;"> {</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  messages</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;"> Message</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;">[]</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  toolUseContext</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;"> ToolUseContext</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  maxOutputTokensOverride</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> number</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;"> |</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> undefined</span><span style="--shiki-light:#6A737D;--shiki-dark:#6A737D;">  // 64K 升级</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  autoCompactTracking</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;"> AutoCompactTracking</span><span style="--shiki-light:#6A737D;--shiki-dark:#6A737D;">     // 压缩状态追踪</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  maxOutputTokensRecoveryCount</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> number</span><span style="--shiki-light:#6A737D;--shiki-dark:#6A737D;">         // 恢复尝试次数</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  hasAttemptedReactiveCompact</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> boolean</span><span style="--shiki-light:#6A737D;--shiki-dark:#6A737D;">         // 防止重复压缩</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  turnCount</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> number</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  pendingToolUseSummary</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;"> Promise</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;">&lt;...&gt;          </span><span style="--shiki-light:#6A737D;--shiki-dark:#6A737D;">// 上一轮的工具摘要（异步）</span></span>
+<span class="line"><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">  transition</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;"> { </span><span style="--shiki-light:#E36209;--shiki-dark:#FFAB70;">reason</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> string</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;"> }               </span><span style="--shiki-light:#6A737D;--shiki-dark:#6A737D;">// 状态转移原因（调试用）</span></span>
+<span class="line"><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;">}</span></span></code></pre></div><p>每次 <code>continue</code> 时创建新的 State 对象（不是修改），transition.reason 记录为什么要继续循环（调试用）：</p><ul><li><code>&#39;next_turn&#39;</code> — 正常的工具执行后继续</li><li><code>&#39;reactive_compact_retry&#39;</code> — PTL 恢复后重试</li><li><code>&#39;max_output_tokens_recovery&#39;</code> — 输出截断恢复</li><li><code>&#39;max_output_tokens_escalate&#39;</code> — 升级到 64K</li><li><code>&#39;stop_hook_blocking&#39;</code> — stop hook 阻止了完成（参见 <a href="/ai_harness/claude_code_docs/agent/hook-system.html">Hook 系统</a>）</li><li><code>&#39;collapse_drain_retry&#39;</code> — collapse 排空后重试</li><li><code>&#39;token_budget_continuation&#39;</code> — token budget 要求继续</li></ul><p><strong>模型 Fallback</strong>：</p><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>callModel() 抛出 FallbackTriggeredError</span></span>
+<span class="line"><span>  → 清空当前轮的 assistantMessages 和 toolResults</span></span>
+<span class="line"><span>  → 切换到 fallbackModel</span></span>
+<span class="line"><span>  → 丢弃流式工具执行器的待处理结果</span></span>
+<span class="line"><span>  → 创建新的 StreamingToolExecutor</span></span>
+<span class="line"><span>  → 如果是内部版本，strip thinking signature blocks（不同模型的签名不兼容）</span></span>
+<span class="line"><span>  → yield 系统消息通知用户</span></span>
+<span class="line"><span>  → continue（重试整个请求）</span></span></code></pre></div><hr><h2 id="_2-多级上下文压缩-★★★★★" tabindex="-1">2. 多级上下文压缩 ★★★★★ <a class="header-anchor" href="#_2-多级上下文压缩-★★★★★" aria-label="Permalink to &quot;2. 多级上下文压缩 ★★★★★&quot;">​</a></h2><blockquote><p>📖 详细源码分析：<a href="/ai_harness/claude_code_docs/context/five-layers.html">五层上下文管理体系</a> | <a href="/ai_harness/claude_code_docs/context/compact-intent.html">Compact 意图压缩策略</a></p></blockquote><h3 id="核心文件-services-compact-、utils-collapsereadsearch-ts、query-tokenbudget-ts" tabindex="-1">核心文件：<code>services/compact/</code>、<code>utils/collapseReadSearch.ts</code>、<code>query/tokenBudget.ts</code> <a class="header-anchor" href="#核心文件-services-compact-、utils-collapsereadsearch-ts、query-tokenbudget-ts" aria-label="Permalink to &quot;核心文件：\`services/compact/\`、\`utils/collapseReadSearch.ts\`、\`query/tokenBudget.ts\`&quot;">​</a></h3><h3 id="完整压缩管道-在-queryloop-每轮迭代中按顺序执行" tabindex="-1">完整压缩管道（在 queryLoop 每轮迭代中按顺序执行） <a class="header-anchor" href="#完整压缩管道-在-queryloop-每轮迭代中按顺序执行" aria-label="Permalink to &quot;完整压缩管道（在 queryLoop 每轮迭代中按顺序执行）&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// L1: Tool Result Budget</span></span>
+<span class="line"><span>messagesForQuery = applyToolResultBudget(messagesForQuery, contentReplacementState)</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// L2: Snip Compact</span></span>
+<span class="line"><span>if (feature(&#39;HISTORY_SNIP&#39;)) {</span></span>
+<span class="line"><span>  snipResult = snipCompactIfNeeded(messagesForQuery)</span></span>
+<span class="line"><span>  messagesForQuery = snipResult.messages</span></span>
+<span class="line"><span>  snipTokensFreed = snipResult.tokensFreed</span></span>
+<span class="line"><span>}</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// L3: Microcompact</span></span>
+<span class="line"><span>microcompactResult = microcompact(messagesForQuery, toolUseContext)</span></span>
+<span class="line"><span>messagesForQuery = microcompactResult.messages</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// L4: Context Collapse（如果启用，在 L5 之前运行）</span></span>
+<span class="line"><span>if (feature(&#39;CONTEXT_COLLAPSE&#39;) &amp;&amp; contextCollapse) {</span></span>
+<span class="line"><span>  collapseResult = contextCollapse.applyCollapsesIfNeeded(messagesForQuery)</span></span>
+<span class="line"><span>  messagesForQuery = collapseResult.messages</span></span>
+<span class="line"><span>}</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>// L5: Auto-Compact</span></span>
+<span class="line"><span>{ compactionResult, consecutiveFailures } = autocompact(messagesForQuery, ...)</span></span>
+<span class="line"><span>if (compactionResult) {</span></span>
+<span class="line"><span>  messagesForQuery = buildPostCompactMessages(compactionResult)</span></span>
+<span class="line"><span>  tracking = { compacted: true, turnCounter: 0, consecutiveFailures: 0 }</span></span>
+<span class="line"><span>}</span></span></code></pre></div><h3 id="l1-tool-result-budget-—-applytoolresultbudget" tabindex="-1">L1: Tool Result Budget — <code>applyToolResultBudget()</code> <a class="header-anchor" href="#l1-tool-result-budget-—-applytoolresultbudget" aria-label="Permalink to &quot;L1: Tool Result Budget — \`applyToolResultBudget()\`&quot;">​</a></h3><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/context/tool-budget.html">工具调用 Token 预算</a></p></blockquote><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：限制每个工具返回结果的大小</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>contentReplacementState 管理三分区：</span></span>
+<span class="line"><span>  fresh    — 新结果，可以自由截断</span></span>
+<span class="line"><span>  frozen   — 已被 prompt cache 缓存，不动（修改会导致缓存失效）</span></span>
+<span class="line"><span>  must-reapply — 缓存过期，可以趁机清理</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>流程：</span></span>
+<span class="line"><span>  1. 遍历所有 tool result 消息</span></span>
+<span class="line"><span>  2. 检查每个结果的 token 数是否超过 per-tool 上限</span></span>
+<span class="line"><span>  3. 超出 → 截断为预览 + 完整结果写入磁盘</span></span>
+<span class="line"><span>  4. 记录替换到 contentReplacementState（用于跨轮次追踪）</span></span>
+<span class="line"><span>  5. 如果 persistReplacements=true，持久化替换记录（用于会话恢复）</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>特殊处理：</span></span>
+<span class="line"><span>  - 某些工具（如 LSP）的 maxResultSizeChars 是 Infinity，不截断</span></span>
+<span class="line"><span>  - 替换记录可以持久化到 agentId 对应的文件（子 Agent 恢复用）</span></span></code></pre></div><h3 id="l2-snip-compact-—-snipcompactifneeded" tabindex="-1">L2: Snip Compact — <code>snipCompactIfNeeded()</code> <a class="header-anchor" href="#l2-snip-compact-—-snipcompactifneeded" aria-label="Permalink to &quot;L2: Snip Compact — \`snipCompactIfNeeded()\`&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：删除旧消息（API 不发送，UI 保留）</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>流程：</span></span>
+<span class="line"><span>  1. 计算当前 token 使用量</span></span>
+<span class="line"><span>  2. 如果超过阈值 → 从最旧的消息开始删除</span></span>
+<span class="line"><span>  3. 保留：system prompt + 最近 N 条消息</span></span>
+<span class="line"><span>  4. 返回 { messages, tokensFreed, boundaryMessage }</span></span>
+<span class="line"><span>  5. tokensFreed 传递给 L5，让 autocompact 的阈值检查考虑 snip 释放的空间</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>关键：snipTokensFreed 必须传递给后续层</span></span>
+<span class="line"><span>  - tokenCountWithEstimation 读的是上一次 API 响应的 usage</span></span>
+<span class="line"><span>  - snip 发生在两次 API 调用之间，usage 是过时的</span></span>
+<span class="line"><span>  - 不传递 → autocompact 误判为&quot;还是太大&quot; → 不必要的 LLM 摘要</span></span></code></pre></div><h3 id="l3-microcompact-—-microcompact" tabindex="-1">L3: Microcompact — <code>microcompact()</code> <a class="header-anchor" href="#l3-microcompact-—-microcompact" aria-label="Permalink to &quot;L3: Microcompact — \`microcompact()\`&quot;">​</a></h3><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/context/prompt-cache.html">Prompt Cache 机制</a></p></blockquote><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：利用 prompt cache TTL 窗口做机会性清理</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>两种模式：</span></span>
+<span class="line"><span>  1. 普通 microcompact：清理过期的工具结果</span></span>
+<span class="line"><span>  2. Cached microcompact（feature(&#39;CACHED_MICROCOMPACT&#39;)）：</span></span>
+<span class="line"><span>     - 通过服务端 cache editing API 删除缓存中的旧内容</span></span>
+<span class="line"><span>     - 不修改本地消息（保持 replay 确定性）</span></span>
+<span class="line"><span>     - 延迟 yield boundary message 到 API 响应后</span></span>
+<span class="line"><span>     - 用 cache_deleted_input_tokens 字段获取实际删除量</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>不可拆分规则：tool_use 和 tool_result 必须成对删除</span></span></code></pre></div><h3 id="l4-context-collapse-—-contextcollapse-applycollapsesifneeded" tabindex="-1">L4: Context Collapse — <code>contextCollapse.applyCollapsesIfNeeded()</code> <a class="header-anchor" href="#l4-context-collapse-—-contextcollapse-applycollapsesifneeded" aria-label="Permalink to &quot;L4: Context Collapse — \`contextCollapse.applyCollapsesIfNeeded()\`&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：CQRS 投影摘要</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>核心概念：</span></span>
+<span class="line"><span>  - 对话历史是 source of truth（命令日志）</span></span>
+<span class="line"><span>  - API 看到的是投影视图（读模型）</span></span>
+<span class="line"><span>  - collapse 是追加式的 commit log</span></span>
+<span class="line"><span>  - projectView() 在每轮迭代时重放 commit log</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>流程：</span></span>
+<span class="line"><span>  1. 检查是否需要新的 collapse</span></span>
+<span class="line"><span>  2. 如果需要 → 选择要折叠的消息范围</span></span>
+<span class="line"><span>  3. 生成摘要（本地或 LLM）</span></span>
+<span class="line"><span>  4. 追加 collapse commit 到日志</span></span>
+<span class="line"><span>  5. 返回投影后的消息数组</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>与 L5 的互斥：</span></span>
+<span class="line"><span>  - L4 在 L5 之前运行</span></span>
+<span class="line"><span>  - 如果 L4 把 token 使用率降到 autocompact 阈值以下 → L5 不触发</span></span>
+<span class="line"><span>  - 效果：用便宜的投影替代昂贵的 LLM 摘要</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>PTL 恢复：</span></span>
+<span class="line"><span>  - 如果 API 返回 413（prompt-too-long）</span></span>
+<span class="line"><span>  - 先尝试 recoverFromOverflow()：排空所有 staged collapses</span></span>
+<span class="line"><span>  - 如果排空后仍然 413 → 降级到 reactive compact（L5）</span></span></code></pre></div><h3 id="l5-auto-compact-—-autocompact" tabindex="-1">L5: Auto-Compact — <code>autocompact()</code> <a class="header-anchor" href="#l5-auto-compact-—-autocompact" aria-label="Permalink to &quot;L5: Auto-Compact — \`autocompact()\`&quot;">​</a></h3><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/context/compact-intent.html">Compact 意图压缩策略</a></p></blockquote><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：LLM 结构化摘要 + 断路器</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>触发条件：</span></span>
+<span class="line"><span>  - tokenCountWithEstimation(messages) - snipTokensFreed &gt; threshold</span></span>
+<span class="line"><span>  - threshold ≈ 92% of context window</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>摘要内容：</span></span>
+<span class="line"><span>  - 结构化格式：意图、关键概念、文件、错误、任务状态、用户消息原文</span></span>
+<span class="line"><span>  - 恢复关键上下文：最近的文件、计划状态、待处理的工具</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>断路器：</span></span>
+<span class="line"><span>  - consecutiveFailures 跨迭代传递</span></span>
+<span class="line"><span>  - 超过阈值后停止尝试</span></span>
+<span class="line"><span>  - tracking.consecutiveFailures 在 compactionResult 成功时重置为 0</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>task_budget 跨压缩边界：</span></span>
+<span class="line"><span>  - 压缩前记录 preCompactContext（最后一次 API 响应的 context tokens）</span></span>
+<span class="line"><span>  - taskBudgetRemaining -= preCompactContext</span></span>
+<span class="line"><span>  - 传递给下一次 API 调用的 taskBudget.remaining</span></span>
+<span class="line"><span>  - 这样服务端知道压缩前已经消耗了多少</span></span></code></pre></div><h3 id="l6-l7-blocking-reactive-recovery" tabindex="-1">L6-L7: Blocking + Reactive Recovery <a class="header-anchor" href="#l6-l7-blocking-reactive-recovery" aria-label="Permalink to &quot;L6-L7: Blocking + Reactive Recovery&quot;">​</a></h3><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/agent/error-recovery.html">多级错误恢复策略</a></p></blockquote><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>L6 Blocking（在 queryLoop 中直接检查）：</span></span>
+<span class="line"><span>  if (isAtBlockingLimit &amp;&amp; !compactionResult &amp;&amp; !reactiveCompactEnabled) {</span></span>
+<span class="line"><span>    yield PROMPT_TOO_LONG_ERROR_MESSAGE</span></span>
+<span class="line"><span>    return { reason: &#39;blocking_limit&#39; }</span></span>
+<span class="line"><span>  }</span></span>
+<span class="line"><span>  </span></span>
+<span class="line"><span>  跳过条件：</span></span>
+<span class="line"><span>  - 刚刚完成了压缩（compactionResult 存在）</span></span>
+<span class="line"><span>  - reactive compact 启用且 auto compact 也启用</span></span>
+<span class="line"><span>  - context collapse 启用且 auto compact 也启用</span></span>
+<span class="line"><span>  - querySource 是 &#39;compact&#39; 或 &#39;session_memory&#39;（压缩 Agent 自身）</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>L7 Reactive Recovery（在 needsFollowUp=false 时检查）：</span></span>
+<span class="line"><span>  if (isWithheld413) {</span></span>
+<span class="line"><span>    // 先尝试 collapse drain</span></span>
+<span class="line"><span>    if (contextCollapse &amp;&amp; state.transition?.reason !== &#39;collapse_drain_retry&#39;) {</span></span>
+<span class="line"><span>      drained = contextCollapse.recoverFromOverflow(messages)</span></span>
+<span class="line"><span>      if (drained.committed &gt; 0) → continue（重试）</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>    // 再尝试 reactive compact</span></span>
+<span class="line"><span>    if (reactiveCompact &amp;&amp; !hasAttemptedReactiveCompact) {</span></span>
+<span class="line"><span>      compacted = reactiveCompact.tryReactiveCompact(...)</span></span>
+<span class="line"><span>      if (compacted) → continue（重试）</span></span>
+<span class="line"><span>    }</span></span>
+<span class="line"><span>    // 都失败 → surface error</span></span>
+<span class="line"><span>    yield lastMessage</span></span>
+<span class="line"><span>    return { reason: &#39;prompt_too_long&#39; }</span></span>
+<span class="line"><span>  }</span></span></code></pre></div><hr><h2 id="_3-跨会话记忆系统-★★★★" tabindex="-1">3. 跨会话记忆系统 ★★★★ <a class="header-anchor" href="#_3-跨会话记忆系统-★★★★" aria-label="Permalink to &quot;3. 跨会话记忆系统 ★★★★&quot;">​</a></h2><blockquote><p>📖 详细源码分析：<a href="/ai_harness/claude_code_docs/data/claudemd.html">CLAUDE.md 持久化配置</a> | <a href="/ai_harness/claude_code_docs/data/session.html">会话数据管理</a></p></blockquote><h3 id="核心文件-memdir-、services-sessionmemory-、services-autodream-、services-extractmemories-、utils-sidequery-ts" tabindex="-1">核心文件：<code>memdir/</code>、<code>services/SessionMemory/</code>、<code>services/autoDream/</code>、<code>services/extractMemories/</code>、<code>utils/sideQuery.ts</code> <a class="header-anchor" href="#核心文件-memdir-、services-sessionmemory-、services-autodream-、services-extractmemories-、utils-sidequery-ts" aria-label="Permalink to &quot;核心文件：\`memdir/\`、\`services/SessionMemory/\`、\`services/autoDream/\`、\`services/extractMemories/\`、\`utils/sideQuery.ts\`&quot;">​</a></h3><h3 id="记忆架构" tabindex="-1">记忆架构 <a class="header-anchor" href="#记忆架构" aria-label="Permalink to &quot;记忆架构&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>两套独立系统：</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>1. CLAUDE.md（用户写的，稳定规则）</span></span>
+<span class="line"><span>   - 沿目录树向上查找并合并</span></span>
+<span class="line"><span>   - foo/bar/CLAUDE.md + foo/CLAUDE.md</span></span>
+<span class="line"><span>   - 每次 compact 后重新加载</span></span>
+<span class="line"><span>   - 不会被压缩丢弃</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>2. Auto Memory / memdir（Claude 学的，渐进演化）</span></span>
+<span class="line"><span>   Memory Directory/</span></span>
+<span class="line"><span>   ├── ENTRYPOINT.md     ← 索引（&lt; 25KB）</span></span>
+<span class="line"><span>   ├── user-prefs.md     ← 用户偏好</span></span>
+<span class="line"><span>   ├── project-ctx.md    ← 项目状态</span></span>
+<span class="line"><span>   ├── feedback.md       ← 用户纠正</span></span>
+<span class="line"><span>   └── logs/             ← 每日日志</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>   四种类型：</span></span>
+<span class="line"><span>   - user: 角色、目标、偏好</span></span>
+<span class="line"><span>   - feedback: &quot;不要做 X&quot; / &quot;继续做 Y&quot;</span></span>
+<span class="line"><span>   - project: 进行中的工作、截止日期</span></span>
+<span class="line"><span>   - reference: 外部系统指针</span></span></code></pre></div><h3 id="sidequery-语义检索-—-utils-sidequery-ts" tabindex="-1">sideQuery 语义检索 — <code>utils/sideQuery.ts</code> <a class="header-anchor" href="#sidequery-语义检索-—-utils-sidequery-ts" aria-label="Permalink to &quot;sideQuery 语义检索 — \`utils/sideQuery.ts\`&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：在主对话之外做检索，结果注入上下文但不污染消息历史</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>流程：</span></span>
+<span class="line"><span>  1. queryLoop 开始时启动 startRelevantMemoryPrefetch()</span></span>
+<span class="line"><span>  2. 异步执行（不阻塞主循环）</span></span>
+<span class="line"><span>  3. 在工具执行完成后检查是否 settled</span></span>
+<span class="line"><span>  4. 如果 settled → filterDuplicateMemoryAttachments() 去重</span></span>
+<span class="line"><span>  5. 作为 attachment 注入到下一轮的消息中</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>using 语法：</span></span>
+<span class="line"><span>  using pendingMemoryPrefetch = startRelevantMemoryPrefetch(messages)</span></span>
+<span class="line"><span>  // 自动在 generator 退出时 dispose（清理 + 遥测）</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>去重逻辑：</span></span>
+<span class="line"><span>  filterDuplicateMemoryAttachments(memories, readFileState)</span></span>
+<span class="line"><span>  - readFileState 追踪模型已经 Read/Write/Edit 过的文件</span></span>
+<span class="line"><span>  - 如果记忆文件已经被模型读过 → 跳过（避免重复注入）</span></span></code></pre></div><h3 id="dream-mode-—-services-autodream" tabindex="-1">Dream Mode — <code>services/autoDream/</code> <a class="header-anchor" href="#dream-mode-—-services-autodream" aria-label="Permalink to &quot;Dream Mode — \`services/autoDream/\`&quot;">​</a></h3><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/data/store.html">数据存储架构</a> — 记忆持久化底层机制</p></blockquote><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>原理：空闲时自动整合记忆</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>4 阶段：</span></span>
+<span class="line"><span>  Phase 1: Orient — ls 记忆目录，读索引</span></span>
+<span class="line"><span>  Phase 2: Gather — 检查日志，窄范围 grep</span></span>
+<span class="line"><span>  Phase 3: Consolidate — 合并，相对日期→绝对日期，删除矛盾</span></span>
+<span class="line"><span>  Phase 4: Prune — 索引 &lt; 25KB，删除过期</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>触发条件：Agent 空闲时（通过 cron 或 idle 检测）</span></span></code></pre></div><hr><h2 id="_4-多级错误恢复-★★★★" tabindex="-1">4. 多级错误恢复 ★★★★ <a class="header-anchor" href="#_4-多级错误恢复-★★★★" aria-label="Permalink to &quot;4. 多级错误恢复 ★★★★&quot;">​</a></h2><blockquote><p>📖 详细源码分析：<a href="/ai_harness/claude_code_docs/agent/error-recovery.html">多级错误恢复策略</a></p></blockquote><h3 id="在-queryloop-中的实现" tabindex="-1">在 queryLoop 中的实现 <a class="header-anchor" href="#在-queryloop-中的实现" aria-label="Permalink to &quot;在 queryLoop 中的实现&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>错误恢复是 queryLoop 的核心复杂性来源。以下是完整的恢复链路：</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>=== prompt-too-long (413) ===</span></span>
+<span class="line"><span>1. 流式输出时暂扣错误（withheld = true）</span></span>
+<span class="line"><span>2. 流式结束后检查：</span></span>
+<span class="line"><span>   a. 先尝试 collapse drain（排空 staged collapses）</span></span>
+<span class="line"><span>      - 如果上一次 transition 已经是 collapse_drain_retry → 跳过</span></span>
+<span class="line"><span>      - 成功 → continue（重试）</span></span>
+<span class="line"><span>   b. 再尝试 reactive compact（LLM 摘要）</span></span>
+<span class="line"><span>      - 如果 hasAttemptedReactiveCompact → 跳过（防止循环）</span></span>
+<span class="line"><span>      - 成功 → continue（重试），设置 hasAttemptedReactiveCompact = true</span></span>
+<span class="line"><span>   c. 都失败 → surface error，return</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>=== max-output-tokens ===</span></span>
+<span class="line"><span>1. 流式输出时暂扣错误</span></span>
+<span class="line"><span>2. 流式结束后检查：</span></span>
+<span class="line"><span>   a. 先尝试 escalate（8K → 64K）</span></span>
+<span class="line"><span>      - 只在 maxOutputTokensOverride === undefined 时触发（一次性）</span></span>
+<span class="line"><span>      - continue（重试，带 maxOutputTokensOverride: 64K）</span></span>
+<span class="line"><span>   b. 再尝试 multi-turn recovery（最多 N 次）</span></span>
+<span class="line"><span>      - 注入恢复消息：&quot;Output token limit hit. Resume directly...&quot;</span></span>
+<span class="line"><span>      - maxOutputTokensRecoveryCount++</span></span>
+<span class="line"><span>      - continue</span></span>
+<span class="line"><span>   c. 恢复次数耗尽 → surface error</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>=== 模型不可用 ===</span></span>
+<span class="line"><span>1. callModel() 抛出 FallbackTriggeredError</span></span>
+<span class="line"><span>2. 清空当前轮的所有状态</span></span>
+<span class="line"><span>3. 切换到 fallbackModel</span></span>
+<span class="line"><span>4. yield 系统消息通知用户</span></span>
+<span class="line"><span>5. continue（重试）</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>=== 流式中断 ===</span></span>
+<span class="line"><span>1. 检测 abortController.signal.aborted</span></span>
+<span class="line"><span>2. 如果有 streamingToolExecutor → 收集剩余结果（生成 synthetic tool_results）</span></span>
+<span class="line"><span>3. 否则 → yieldMissingToolResultBlocks（为孤立的 tool_use 生成占位结果）</span></span>
+<span class="line"><span>4. return { reason: &#39;aborted&#39; }</span></span></code></pre></div><hr><h2 id="_5-token-budget-管理-★★★" tabindex="-1">5. Token Budget 管理 ★★★ <a class="header-anchor" href="#_5-token-budget-管理-★★★" aria-label="Permalink to &quot;5. Token Budget 管理 ★★★&quot;">​</a></h2><blockquote><p>📖 详细源码分析：<a href="/ai_harness/claude_code_docs/context/tool-budget.html">工具调用 Token 预算</a> | <a href="/ai_harness/claude_code_docs/api/token-estimate.html">Token 估算与计费</a></p></blockquote><h3 id="核心文件-query-tokenbudget-ts、utils-tokenbudget-ts" tabindex="-1">核心文件：<code>query/tokenBudget.ts</code>、<code>utils/tokenBudget.ts</code> <a class="header-anchor" href="#核心文件-query-tokenbudget-ts、utils-tokenbudget-ts" aria-label="Permalink to &quot;核心文件：\`query/tokenBudget.ts\`、\`utils/tokenBudget.ts\`&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>两个层面的 budget：</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>1. Token Budget（feature(&#39;TOKEN_BUDGET&#39;)）</span></span>
+<span class="line"><span>   - 用户通过 &quot;+500k&quot; 或 &quot;use 2M tokens&quot; 指定</span></span>
+<span class="line"><span>   - budgetTracker 追踪每轮的 output tokens</span></span>
+<span class="line"><span>   - checkTokenBudget() 在每轮结束时检查</span></span>
+<span class="line"><span>   - 如果未达到目标 → 注入 nudge message 让模型继续</span></span>
+<span class="line"><span>   - 如果达到目标 → 正常完成</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>2. Task Budget（params.taskBudget）</span></span>
+<span class="line"><span>   - 跨压缩边界追踪</span></span>
+<span class="line"><span>   - taskBudgetRemaining 在每次 compact 时更新：</span></span>
+<span class="line"><span>     taskBudgetRemaining -= preCompactContext</span></span>
+<span class="line"><span>   - 传递给 API 的 taskBudget.remaining</span></span>
+<span class="line"><span>   - 服务端用这个值知道压缩前已经消耗了多少</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>3. 成本追踪（cost-tracker.ts）</span></span>
+<span class="line"><span>   - maxBudgetUsd 硬停止</span></span>
+<span class="line"><span>   - 区分 cached vs uncached tokens</span></span>
+<span class="line"><span>   - 缓存命中时只付 10% 成本</span></span></code></pre></div><hr><h2 id="_6-推测执行-★★★" tabindex="-1">6. 推测执行 ★★★ <a class="header-anchor" href="#_6-推测执行-★★★" aria-label="Permalink to &quot;6. 推测执行 ★★★&quot;">​</a></h2><h3 id="claude-code-的推测执行体现在两个地方" tabindex="-1">Claude Code 的推测执行体现在两个地方： <a class="header-anchor" href="#claude-code-的推测执行体现在两个地方" aria-label="Permalink to &quot;Claude Code 的推测执行体现在两个地方：&quot;">​</a></h3><p><strong>1. 流式工具执行（StreamingToolExecutor）</strong></p><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/agent/react-loop.html">ReAct 循环工程化实现</a> — 流式工具执行部分</p></blockquote><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>这是一种&quot;推测&quot;：模型还在输出时就开始执行工具</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>流程：</span></span>
+<span class="line"><span>  模型输出 tool_use block A → executor 立即开始执行 A</span></span>
+<span class="line"><span>  模型继续输出 tool_use block B → executor 开始执行 B</span></span>
+<span class="line"><span>  模型输出完毕 → 收集 A 和 B 的结果</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>效果：工具执行和模型输出并行</span></span>
+<span class="line"><span>风险：如果模型输出被中断（fallback），需要丢弃 executor 的待处理结果</span></span></code></pre></div><p><strong>2. Checkpoint 系统</strong></p><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>核心文件：utils/fileHistory.ts</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>每次文件编辑前创建快照：</span></span>
+<span class="line"><span>  - 记录文件的原始内容</span></span>
+<span class="line"><span>  - 支持跨会话持久化</span></span>
+<span class="line"><span>  - 用户可以 /rewind 回滚到任意 checkpoint</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>限制：Bash 命令的文件修改不被追踪</span></span></code></pre></div><hr><h2 id="_7-沙箱-★★★" tabindex="-1">7. 沙箱 ★★★ <a class="header-anchor" href="#_7-沙箱-★★★" aria-label="Permalink to &quot;7. 沙箱 ★★★&quot;">​</a></h2><blockquote><p>📖 参见：<a href="/ai_harness/claude_code_docs/tools/permission.html">工具权限管理</a> | <a href="/ai_harness/claude_code_docs/tools/tool-type.html">工具类型体系</a></p></blockquote><h3 id="核心文件-utils-sandbox" tabindex="-1">核心文件：<code>utils/sandbox/</code> <a class="header-anchor" href="#核心文件-utils-sandbox" aria-label="Permalink to &quot;核心文件：\`utils/sandbox/\`&quot;">​</a></h3><div class="language- vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang"></span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>Claude Code 的沙箱基于操作系统级机制：</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>macOS: Seatbelt（App Sandbox）</span></span>
+<span class="line"><span>  - sandbox-exec 命令</span></span>
+<span class="line"><span>  - .sb 配置文件定义允许的操作</span></span>
+<span class="line"><span>  - 文件系统和网络限制</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Linux/WSL2: bubblewrap (bwrap)</span></span>
+<span class="line"><span>  - 用户空间沙箱</span></span>
+<span class="line"><span>  - namespace 隔离</span></span>
+<span class="line"><span>  - 文件系统挂载限制</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>两种模式：</span></span>
+<span class="line"><span>  1. auto-allow: 可沙箱的命令自动批准，不可沙箱的走权限流程</span></span>
+<span class="line"><span>  2. regular: 所有命令都走权限流程，沙箱只是额外保护层</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>配置：</span></span>
+<span class="line"><span>  sandbox.enabled: true/false</span></span>
+<span class="line"><span>  sandbox.autoAllowBashIfSandboxed: true/false</span></span>
+<span class="line"><span>  sandbox.allowUnsandboxedCommands: true/false（escape hatch）</span></span>
+<span class="line"><span>  sandbox.filesystem.allowWrite: [&quot;/tmp/build&quot;]</span></span>
+<span class="line"><span>  sandbox.filesystem.denyRead: [&quot;~/.aws/credentials&quot;]</span></span>
+<span class="line"><span>  sandbox.network.allowedDomains: [&quot;github.com&quot;, &quot;*.npmjs.org&quot;]</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>子进程继承：所有 Claude Code 生成的子进程继承沙箱约束</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>escape hatch：</span></span>
+<span class="line"><span>  - 如果命令因沙箱限制失败</span></span>
+<span class="line"><span>  - Claude 可以分析失败原因，用 dangerouslyDisableSandbox 重试</span></span>
+<span class="line"><span>  - 重试仍然走权限流程</span></span>
+<span class="line"><span>  - 如果 allowUnsandboxedCommands=false → 忽略 escape hatch</span></span></code></pre></div><hr><h2 id="深入阅读" tabindex="-1">深入阅读 <a class="header-anchor" href="#深入阅读" aria-label="Permalink to &quot;深入阅读&quot;">​</a></h2><p>以下是 Claude Code 项目文档站中与本文各章节对应的详细源码分析文章：</p><h3 id="agent-核心架构" tabindex="-1">Agent 核心架构 <a class="header-anchor" href="#agent-核心架构" aria-label="Permalink to &quot;Agent 核心架构&quot;">​</a></h3><ul><li><a href="/ai_harness/claude_code_docs/agent/react-loop.html">ReAct 循环工程化实现</a> — queryLoop 主循环、StreamingToolExecutor、State 对象设计</li><li><a href="/ai_harness/claude_code_docs/agent/error-recovery.html">多级错误恢复策略</a> — PTL/max-output-tokens/fallback 完整恢复链路</li><li><a href="/ai_harness/claude_code_docs/agent/hook-system.html">Hook 系统</a> — stop hooks、pre/post tool hooks</li><li><a href="/ai_harness/claude_code_docs/agent/sub-agent.html">子 Agent 架构</a> — 子 Agent 的上下文隔离与恢复</li></ul><h3 id="上下文管理" tabindex="-1">上下文管理 <a class="header-anchor" href="#上下文管理" aria-label="Permalink to &quot;上下文管理&quot;">​</a></h3><ul><li><a href="/ai_harness/claude_code_docs/context/five-layers.html">五层上下文管理体系</a> — L1-L7 完整压缩管道</li><li><a href="/ai_harness/claude_code_docs/context/compact-intent.html">Compact 意图压缩策略</a> — Auto-Compact 的结构化摘要与断路器</li><li><a href="/ai_harness/claude_code_docs/context/prompt-cache.html">Prompt Cache 机制</a> — 缓存 TTL、Microcompact、frozen 分区</li><li><a href="/ai_harness/claude_code_docs/context/tool-budget.html">工具调用 Token 预算</a> — per-tool 截断、contentReplacementState</li></ul><h3 id="数据与记忆" tabindex="-1">数据与记忆 <a class="header-anchor" href="#数据与记忆" aria-label="Permalink to &quot;数据与记忆&quot;">​</a></h3><ul><li><a href="/ai_harness/claude_code_docs/data/claudemd.html">CLAUDE.md 持久化配置</a> — 目录树合并、compact 后重载</li><li><a href="/ai_harness/claude_code_docs/data/session.html">会话数据管理</a> — SessionMemory、sideQuery 语义检索</li><li><a href="/ai_harness/claude_code_docs/data/store.html">数据存储架构</a> — 底层持久化机制</li></ul><h3 id="api-与工具" tabindex="-1">API 与工具 <a class="header-anchor" href="#api-与工具" aria-label="Permalink to &quot;API 与工具&quot;">​</a></h3><ul><li><a href="/ai_harness/claude_code_docs/api/token-estimate.html">Token 估算与计费</a> — budgetTracker、成本追踪</li><li><a href="/ai_harness/claude_code_docs/api/mcp.html">MCP 集成</a> — MCP 上下文注入</li><li><a href="/ai_harness/claude_code_docs/tools/permission.html">工具权限管理</a> — 沙箱权限流程</li><li><a href="/ai_harness/claude_code_docs/tools/tool-type.html">工具类型体系</a> — 工具分类与 schema</li><li><a href="/ai_harness/claude_code_docs/tools/tool-persist.html">工具持久化</a> — 工具结果持久化</li></ul><h3 id="构建与-prompt" tabindex="-1">构建与 Prompt <a class="header-anchor" href="#构建与-prompt" aria-label="Permalink to &quot;构建与 Prompt&quot;">​</a></h3><ul><li><a href="/ai_harness/claude_code_docs/build/feature-flag.html">Feature Flag 体系</a> — 功能开关控制</li><li><a href="/ai_harness/claude_code_docs/build/prompt-section.html">Prompt Section 架构</a> — system prompt 组装</li><li><a href="/ai_harness/claude_code_docs/appendix/patterns.html">设计模式总结</a> — 架构模式与最佳实践</li></ul>`,88)])])}const m=a(l,[["render",t]]);export{u as __pageData,m as default};

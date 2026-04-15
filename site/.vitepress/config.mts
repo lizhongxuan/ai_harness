@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(
+  defineConfig({
   lang: 'zh-CN',
-  title: 'Agent Harness 面试准备',
-  description: '四大 Agent 项目架构分析与面试准备站点',
+  title: 'Agent Harness 学习',
+  description: '四大 Agent 项目架构分析与学习站点',
 
   // GitHub Pages 部署路径，格式: /<仓库名>/
   // 如果部署到 https://<用户名>.github.io/ 根路径，改为 '/'
@@ -20,14 +22,24 @@ export default defineConfig({
       { text: '全局概览', link: '/overview/' },
       { text: '核心模块', link: '/modules/agent-loop' },
       { text: '实战定制', link: '/customization/' },
-      { text: '综合面试题', link: '/comprehensive/' },
+      { text: '综合练习题', link: '/comprehensive/' },
+      {
+        text: '项目剖析',
+        items: [
+          { text: '总览', link: '/deep-dive/' },
+          { text: 'Claude Code 剖析', link: '/deep-dive/claude-code' },
+          { text: 'Codex CLI 剖析', link: '/deep-dive/codex' },
+          { text: 'Vercel AI SDK 剖析', link: '/deep-dive/vercel-ai-sdk' },
+          { text: 'Hermes Agent 剖析', link: '/deep-dive/hermes-agent' },
+        ],
+      },
       {
         text: '项目文档',
         items: [
-          { text: 'Claude Code', link: '/claude_code_docs/' },
-          { text: 'Codex CLI', link: '/codex_docs/' },
-          { text: 'Vercel AI SDK', link: '/vercel_ai_docs/' },
-          { text: 'Hermes Agent', link: '/hermes_agent_docs/' },
+          { text: 'Claude Code 文档', link: '/claude_code_docs/' },
+          { text: 'Codex CLI 文档', link: '/codex_docs/' },
+          { text: 'Vercel AI SDK 文档', link: '/vercel_ai_docs/' },
+          { text: 'Hermes Agent 文档', link: '/hermes_agent_docs/' },
         ],
       },
       { text: '学习计划', link: '/study-plan' },
@@ -72,6 +84,34 @@ export default defineConfig({
         },
       ],
 
+      '/deep-dive/': [
+        {
+          text: '项目深度剖析',
+          items: [
+            { text: '总览', link: '/deep-dive/' },
+            { text: 'Claude Code', link: '/deep-dive/claude-code' },
+            { text: 'Codex CLI', link: '/deep-dive/codex' },
+            { text: 'Vercel AI SDK', link: '/deep-dive/vercel-ai-sdk' },
+            { text: 'Hermes Agent', link: '/deep-dive/hermes-agent' },
+          ],
+        },
+        {
+          text: '项目文档站',
+          items: [
+            { text: '→ Claude Code 文档', link: '/claude_code_docs/' },
+            { text: '→ Codex CLI 文档', link: '/codex_docs/' },
+            { text: '→ Vercel AI SDK 文档', link: '/vercel_ai_docs/' },
+            { text: '→ Hermes Agent 文档', link: '/hermes_agent_docs/' },
+          ],
+        },
+        {
+          text: '导航',
+          items: [
+            { text: '← 返回全局概览', link: '/overview/' },
+          ],
+        },
+      ],
+
       '/modules/': [
         {
           text: '导航',
@@ -103,6 +143,13 @@ export default defineConfig({
       ],
 
       '/claude_code_docs/': [
+        {
+          text: '导航',
+          items: [
+            { text: '← 返回项目剖析总览', link: '/deep-dive/' },
+            { text: '← Claude Code 深度剖析', link: '/deep-dive/claude-code' },
+          ],
+        },
         {
           text: '概览',
           items: [
@@ -193,6 +240,13 @@ export default defineConfig({
 
       '/codex_docs/': [
         {
+          text: '导航',
+          items: [
+            { text: '← 返回项目剖析总览', link: '/deep-dive/' },
+            { text: '← Codex CLI 深度剖析', link: '/deep-dive/codex' },
+          ],
+        },
+        {
           text: '入门',
           items: [
             { text: '快速开始', link: '/codex_docs/guide/getting-started' },
@@ -271,6 +325,13 @@ export default defineConfig({
       ],
 
       '/vercel_ai_docs/': [
+        {
+          text: '导航',
+          items: [
+            { text: '← 返回项目剖析总览', link: '/deep-dive/' },
+            { text: '← Vercel AI SDK 深度剖析', link: '/deep-dive/vercel-ai-sdk' },
+          ],
+        },
         {
           text: '入门',
           items: [
@@ -354,6 +415,13 @@ export default defineConfig({
       ],
 
       '/hermes_agent_docs/': [
+        {
+          text: '导航',
+          items: [
+            { text: '← 返回项目剖析总览', link: '/deep-dive/' },
+            { text: '← Hermes Agent 深度剖析', link: '/deep-dive/hermes-agent' },
+          ],
+        },
         {
           text: '概览',
           items: [
@@ -447,3 +515,4 @@ export default defineConfig({
     },
   },
 })
+)

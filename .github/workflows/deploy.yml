@@ -34,7 +34,8 @@ jobs:
         run: bash scripts/prepare-docs.sh
 
       - name: Build VitePress site
-        run: npx vitepress build site
+        run: npx vitepress build
+        working-directory: site
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
