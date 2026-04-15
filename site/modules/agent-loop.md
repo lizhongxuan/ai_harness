@@ -233,6 +233,33 @@ while loop（核心简单）
 
 > "Claude Code 用 while loop 是因为它的场景足够通用。但如果我要设计一个需要稳定运行 8 小时的 Agent Harness，Phase 管道给了我三个 while loop 没有的东西：每个阶段独立的资源预算和超时、阶段级别的异常隔离、可审计的执行轨迹。本质上，Phase 管道是在 while loop 内部增加结构，不是替代它。"
 
+::: warning ⚠️ 重要澄清：Claude Code 真的没有这三个能力吗？
+上面的回答策略是面试叙事角度的简化表述。实际上 Claude Code 通过不同的机制实现了类似效果，区别在于**隐式 vs 显式**：
+
+**1. 资源预算和超时** — Claude Code 有，但不是按阶段分配的：
+- `maxTurns` 限制总循环次数，`maxBudgetUsd` 硬停止成本预算
+- `taskBudget` 跨压缩边界追踪 token 消耗
+- 工具执行有独立超时（AbortSignal），子 Agent 有独立的 IterationBudget
+- 它没有的是"plan 阶段用 X token，act 阶段用 Y token"这种按阶段分配，但通过全局预算 + 工具级超时达到了类似效果
+
+**2. 异常隔离** — Claude Code 的异常隔离按错误类型组织，而不是按阶段：
+- PTL（prompt-too-long）→ 触发压缩恢复链（collapse drain → reactive compact）
+- max-output-tokens → 升级到 64K → 多轮恢复（注入 "Resume directly" 消息）
+- 模型不可用 → FallbackTriggeredError → 切换模型
+- 工具失败 → 错误回填给模型，不崩溃
+- 效果类似，组织方式不同
+
+**3. 可审计的执行轨迹** — Claude Code 有：
+- `State.transition.reason` 记录每次 continue 的原因（`'next_turn'`、`'reactive_compact_retry'`、`'max_output_tokens_recovery'` 等）
+- 完整的消息历史（只追加不修改）天然就是审计日志
+- Checkpoint 系统记录文件变更，Hook 系统可拦截和记录每次工具调用
+- 粒度是"每轮循环"而不是"每个阶段"
+
+**本质区别：** Claude Code 选择了简单（while loop），在需要时通过局部机制（全局预算、错误分类、transition reason）补充能力。Phase 管道选择了结构化，让这些能力成为一等公民，代价是更多的前期复杂度。Claude Code 自己的演进也印证了这一点——从最初的简单 while loop，逐步加入 Tasks 系统、Agent Teams、transition reason 追踪，本质上是在 while loop 内部逐步增加结构，和 Phase 管道的方向一致，只是没有一步到位。
+
+面试时推荐的表述：不要说 Claude Code "没有"这些能力，而是说 Phase 管道让这些能力**更显式、更容易理解和维护**。
+:::
+
 </details>
 
 #### Q1.6 🔥 你的 Agent 需要同时调用 3 个工具（读文件、搜索代码、执行命令）。请设计工具并行执行的策略
