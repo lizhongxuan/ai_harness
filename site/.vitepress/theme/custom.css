@@ -1,0 +1,16 @@
+/*
+ * Responsive table styles for comparison tables.
+ * VitePress default theme sets `display: block; overflow-x: auto` on .vp-doc table,
+ * which enables horizontal scrolling. We add min-width on cells to prevent
+ * content from being crushed on narrow screens (375px).
+ */
+
+.vp-doc table {
+  min-width: 640px;
+}
+
+.vp-doc th,
+.vp-doc td {
+  white-space: normal;
+  word-break: break-word;
+}

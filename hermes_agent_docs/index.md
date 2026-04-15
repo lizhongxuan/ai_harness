@@ -1,0 +1,48 @@
+---
+layout: home
+hero:
+  name: Hermes Agent 源码学习
+  text: 26 个核心知识点深度解析
+  tagline: 基于 Nous Research 开源 hermes-agent（Python）源码的完整分析，覆盖 Agent 架构、多平台网关、技能生态、上下文压缩、记忆系统、工具系统、RL 训练
+  actions:
+    - theme: brand
+      text: 快速开始
+      link: /guide/getting-started
+    - theme: alt
+      text: 学习路线
+      link: /appendix/roadmap
+
+features:
+  - icon: 🔄
+    title: Agent 架构
+    details: 双 Agent 循环、并行工具执行、迭代预算、子 Agent 委托
+    link: /agent/dual-loop
+  - icon: 🌐
+    title: 多平台网关
+    details: 15+ 平台适配器、会话管理、Hook 系统、流式消费
+    link: /gateway/architecture
+  - icon: 🧩
+    title: 技能生态
+    details: 50+ 技能目录、SKILL.md 格式、条件激活、两层缓存
+    link: /skills/skill-system
+  - icon: 🗜️
+    title: 上下文压缩
+    details: 结构化 LLM 摘要、迭代更新、轨迹压缩、50% 阈值
+    link: /context/compressor
+  - icon: 🧠
+    title: 记忆系统
+    details: MemoryManager、内置 + 外部 Provider、上下文围栏
+    link: /memory/manager
+  - icon: 🔧
+    title: 工具系统
+    details: ToolRegistry 自注册、30+ Toolset、类型强转、审批机制
+    link: /tools/registry
+  - icon: 🎯
+    title: RL 训练
+    details: 轨迹保存/压缩、批量运行器、Atropos 集成
+    link: /rl/agent-loop
+  - icon: 📐
+    title: 设计模式
+    details: 13+ 种可复用的架构模式速查
+    link: /appendix/patterns
+---

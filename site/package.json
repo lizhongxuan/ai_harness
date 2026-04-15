@@ -1,0 +1,14 @@
+{
+  "name": "agent-harness-interview-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agent Harness 面试准备站点",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "dependencies": {
+    "vitepress": "^1.6.3"
+  }
+}
